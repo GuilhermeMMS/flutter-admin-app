@@ -1,0 +1,181 @@
+// ============================================
+// FIRESTORE SECURITY RULES
+// Lead Genius Admin - Multi-Tenant App
+// ============================================
+// 
+// Cole este conteúdo no Firebase Console:
+// Firestore Database > Rules
+// ============================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ==========================================
+    // FUNÇÕES AUXILIARES
+    // ==========================================
+    
+    // Verifica se usuário está autenticado
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Obtém dados do usuário atual
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    // Verifica se é owner
+    function isOwner() {
+      return isAuthenticated() && 
+             getUserData().role.matches('owner.*');
+    }
+    
+    // Verifica se é owner admin
+    function isOwnerAdmin() {
+      return isAuthenticated() && 
+             getUserData().role == 'owner_admin';
+    }
+    
+    // Verifica se é cliente admin
+    function isClientAdmin() {
+      return isAuthenticated() && 
+             getUserData().role == 'cliente_admin';
+    }
+    
+    // Obtém tenant_id do usuário atual
+    function getUserTenantId() {
+      return getUserData().tenant_id;
+    }
+    
+    // Verifica se documento pertence ao tenant do usuário
+    function belongsToUserTenant() {
+      return resource.data.tenant_id == getUserTenantId();
+    }
+    
+    // Verifica se novo documento terá o tenant_id correto
+    function hasCorrectTenantId() {
+      return request.resource.data.tenant_id == getUserTenantId();
+    }
+    
+    // ==========================================
+    // REGRAS: users
+    // ==========================================
+    match /users/{userId} {
+      // Usuário pode ler próprio perfil
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      
+      // Owners podem ler todos os usuários
+      allow read: if isOwner();
+      
+      // Usuários do mesmo tenant podem ler entre si
+      allow read: if isAuthenticated() && 
+                     resource.data.tenant_id == getUserTenantId();
+      
+      // Usuário pode atualizar próprio perfil (exceto role e tenant_id)
+      allow update: if isAuthenticated() && 
+                       request.auth.uid == userId &&
+                       request.resource.data.role == resource.data.role &&
+                       request.resource.data.tenant_id == resource.data.tenant_id;
+      
+      // Owner admin pode criar/atualizar qualquer usuário
+      allow create, update: if isOwnerAdmin();
+      
+      // Cliente admin pode criar usuários no próprio tenant
+      allow create: if isClientAdmin() && 
+                       hasCorrectTenantId();
+    }
+    
+    // ==========================================
+    // REGRAS: tenants
+    // ==========================================
+    match /tenants/{tenantId} {
+      // Owners podem ler todos os tenants
+      allow read: if isOwner();
+      
+      // Usuários podem ler próprio tenant
+      allow read: if isAuthenticated() && 
+                     getUserTenantId() == tenantId;
+      
+      // Apenas owner admin pode criar/atualizar/deletar tenants
+      allow create, update, delete: if isOwnerAdmin();
+    }
+    
+    // ==========================================
+    // REGRAS: leads
+    // ==========================================
+    match /leads/{leadId} {
+      // Owners podem ler todos os leads
+      allow read: if isOwner();
+      
+      // Usuários do tenant podem ler leads do tenant
+      allow read: if isAuthenticated() && belongsToUserTenant();
+      
+      // Cliente admin pode criar/atualizar/deletar leads do tenant
+      allow create: if isClientAdmin() && hasCorrectTenantId();
+      allow update, delete: if isClientAdmin() && belongsToUserTenant();
+      
+      // Usuário comum pode criar/atualizar leads (mas não deletar)
+      allow create: if isAuthenticated() && hasCorrectTenantId();
+      allow update: if isAuthenticated() && belongsToUserTenant();
+    }
+    
+    // ==========================================
+    // REGRAS: products
+    // ==========================================
+    match /products/{productId} {
+      allow read: if isOwner() || (isAuthenticated() && belongsToUserTenant());
+      allow create: if isClientAdmin() && hasCorrectTenantId();
+      allow update, delete: if isClientAdmin() && belongsToUserTenant();
+    }
+    
+    // ==========================================
+    // REGRAS: services
+    // ==========================================
+    match /services/{serviceId} {
+      allow read: if isOwner() || (isAuthenticated() && belongsToUserTenant());
+      allow create: if isClientAdmin() && hasCorrectTenantId();
+      allow update, delete: if isClientAdmin() && belongsToUserTenant();
+    }
+    
+    // ==========================================
+    // REGRAS: contracts
+    // ==========================================
+    match /contracts/{contractId} {
+      allow read: if isOwner() || (isAuthenticated() && belongsToUserTenant());
+      allow create: if isClientAdmin() && hasCorrectTenantId();
+      allow update, delete: if isClientAdmin() && belongsToUserTenant();
+    }
+    
+    // ==========================================
+    // REGRAS: invoices
+    // ==========================================
+    match /invoices/{invoiceId} {
+      // Usuários podem ler faturas do próprio tenant
+      allow read: if isAuthenticated() && belongsToUserTenant();
+      
+      // Owners podem ler todas as faturas
+      allow read: if isOwner();
+      
+      // Apenas owner admin pode criar/atualizar faturas
+      allow create, update, delete: if isOwnerAdmin();
+    }
+    
+    // ==========================================
+    // REGRAS: audit_logs
+    // ==========================================
+    match /audit_logs/{logId} {
+      // Owners podem ler todos os logs
+      allow read: if isOwner();
+      
+      // Cliente admin pode ler logs do próprio tenant
+      allow read: if isClientAdmin() && belongsToUserTenant();
+      
+      // Qualquer usuário autenticado pode criar logs
+      allow create: if isAuthenticated();
+      
+      // Ninguém pode deletar logs
+      allow delete: if false;
+    }
+  }
+}

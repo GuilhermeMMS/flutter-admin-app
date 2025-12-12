@@ -1,6 +1,4 @@
-// Lead Genius Admin - Configuração de Rotas
-// Definição de todas as rotas do aplicativo com guards de autenticação e RBAC.
-
+// Lead Genius Admin - Configuração de Rotas (Firebase)
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -66,10 +64,9 @@ final routerProvider = Provider<GoRouter>((ref) {
       
       // Se está logado e está em rota de auth, redireciona baseado na role
       if (isLoggedIn && isAuthRoute) {
-        final user = authState.valueOrNull;
-        final role = user?.userMetadata?['role'] as String? ?? '';
+        final role = ref.read(currentUserRoleProvider);
         
-        if (role.startsWith('owner')) {
+        if (role?.startsWith('owner') == true) {
           return '/owner/dashboard';
         } else {
           return '/client/dashboard';

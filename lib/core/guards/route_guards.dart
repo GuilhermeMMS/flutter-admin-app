@@ -1,126 +1,109 @@
-// Lead Genius Admin - Guards de Rota
-// Implementa guardas de rota para autenticação e autorização.
-
+// Lead Genius Admin - Route Guards (Firebase)
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
-import '../../main.dart';
+import '../providers/auth_provider.dart';
+import '../../services/auth_service.dart';
+
+// ==========================================
+// FUNÇÕES DE VERIFICAÇÃO
+// ==========================================
 
 /// Verifica se o usuário está autenticado
-bool isAuthenticated() {
-  return supabase.auth.currentSession != null;
+bool isAuthenticated(WidgetRef ref) {
+  return ref.read(isLoggedInProvider);
 }
 
 /// Obtém a role do usuário atual
-String getCurrentUserRole() {
-  final user = supabase.auth.currentUser;
-  if (user == null) return '';
-  return user.userMetadata?['role'] ?? '';
+String? getCurrentUserRole(WidgetRef ref) {
+  return ref.read(currentUserRoleProvider);
 }
 
 /// Obtém o tenant_id do usuário atual
-String? getCurrentTenantId() {
-  final user = supabase.auth.currentUser;
-  if (user == null) return null;
-  return user.userMetadata?['tenant_id'];
+String? getCurrentTenantId(WidgetRef ref) {
+  return ref.read(currentTenantIdProvider);
 }
 
+// ==========================================
+// REDIRECT GUARDS PARA GO_ROUTER
+// ==========================================
+
 /// Guard que requer autenticação
-/// Redireciona para /login se não autenticado
-String? requireAuth(BuildContext context, GoRouterState state) {
-  if (!isAuthenticated()) {
+String? requireAuth(BuildContext context, GoRouterState state, WidgetRef ref) {
+  if (!isAuthenticated(ref)) {
     return '/login';
   }
   return null;
 }
 
-/// Guard que requer roles específicas
-/// Uso: requireRole(['owner_admin', 'owner_viewer'])
-String? Function(BuildContext, GoRouterState) requireRole(List<String> allowedRoles) {
-  return (context, state) {
-    if (!isAuthenticated()) {
-      return '/login';
-    }
-    
-    final currentRole = getCurrentUserRole();
-    
-    if (!allowedRoles.contains(currentRole)) {
-      // Redireciona para dashboard apropriado
-      if (currentRole.startsWith('owner')) {
-        return '/owner/dashboard';
-      } else {
-        return '/client/dashboard';
-      }
-    }
-    
-    return null;
-  };
-}
-
-/// Guard que requer role de Owner
-String? requireOwner(BuildContext context, GoRouterState state) {
-  if (!isAuthenticated()) {
+/// Guard que requer uma role específica
+String? requireRole(BuildContext context, GoRouterState state, WidgetRef ref, List<String> allowedRoles) {
+  if (!isAuthenticated(ref)) {
     return '/login';
   }
   
-  final currentRole = getCurrentUserRole();
-  
-  if (!currentRole.startsWith('owner')) {
+  final role = getCurrentUserRole(ref);
+  if (role == null || !allowedRoles.contains(role)) {
     return '/client/dashboard';
   }
   
   return null;
 }
 
-/// Guard que requer role de Cliente
-String? requireClient(BuildContext context, GoRouterState state) {
-  if (!isAuthenticated()) {
+/// Guard que requer role de owner
+String? requireOwner(BuildContext context, GoRouterState state, WidgetRef ref) {
+  if (!isAuthenticated(ref)) {
     return '/login';
   }
   
-  final currentRole = getCurrentUserRole();
+  final role = getCurrentUserRole(ref);
+  if (role == null || !role.startsWith('owner')) {
+    return '/client/dashboard';
+  }
   
-  if (!currentRole.startsWith('cliente')) {
+  return null;
+}
+
+/// Guard que requer role de cliente
+String? requireClient(BuildContext context, GoRouterState state, WidgetRef ref) {
+  if (!isAuthenticated(ref)) {
+    return '/login';
+  }
+  
+  final role = getCurrentUserRole(ref);
+  if (role == null || !role.startsWith('cliente')) {
     return '/owner/dashboard';
   }
   
   return null;
 }
 
-/// Guard que requer permissão de escrita (admin roles)
-String? requireWritePermission(BuildContext context, GoRouterState state) {
-  if (!isAuthenticated()) {
+/// Guard que requer permissão de escrita
+String? requireWritePermission(BuildContext context, GoRouterState state, WidgetRef ref) {
+  if (!isAuthenticated(ref)) {
     return '/login';
   }
   
-  final currentRole = getCurrentUserRole();
-  
-  if (currentRole != 'owner_admin' && currentRole != 'cliente_admin') {
-    // Usuário apenas visualizador - mostra snackbar e redireciona
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Você não tem permissão para esta ação'),
-        backgroundColor: Colors.red,
-      ),
-    );
-    
-    if (currentRole.startsWith('owner')) {
-      return '/owner/dashboard';
-    } else {
-      return '/client/dashboard';
-    }
+  final canWrite = ref.read(canWriteProvider);
+  if (!canWrite) {
+    return null;
   }
   
   return null;
 }
 
-/// Widget wrapper para verificar role em tempo real
+// ==========================================
+// WIDGET GUARDS
+// ==========================================
+
+/// Widget que mostra conteúdo apenas para roles específicas
 class RoleGuard extends ConsumerWidget {
   final List<String> allowedRoles;
   final Widget child;
   final Widget? fallback;
-
+  
   const RoleGuard({
     super.key,
     required this.allowedRoles,
@@ -130,9 +113,9 @@ class RoleGuard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final currentRole = getCurrentUserRole();
+    final role = ref.watch(currentUserRoleProvider);
     
-    if (allowedRoles.contains(currentRole)) {
+    if (role != null && allowedRoles.contains(role)) {
       return child;
     }
     
@@ -140,11 +123,11 @@ class RoleGuard extends ConsumerWidget {
   }
 }
 
-/// Widget wrapper para verificar permissão de escrita
+/// Widget que mostra conteúdo apenas para usuários com permissão de escrita
 class WritePermissionGuard extends ConsumerWidget {
   final Widget child;
   final Widget? fallback;
-
+  
   const WritePermissionGuard({
     super.key,
     required this.child,
@@ -153,8 +136,7 @@ class WritePermissionGuard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final currentRole = getCurrentUserRole();
-    final canWrite = currentRole == 'owner_admin' || currentRole == 'cliente_admin';
+    final canWrite = ref.watch(canWriteProvider);
     
     if (canWrite) {
       return child;
@@ -165,10 +147,10 @@ class WritePermissionGuard extends ConsumerWidget {
 }
 
 /// Widget que mostra conteúdo apenas para owners
-class OwnerOnly extends StatelessWidget {
+class OwnerOnly extends ConsumerWidget {
   final Widget child;
   final Widget? fallback;
-
+  
   const OwnerOnly({
     super.key,
     required this.child,
@@ -176,10 +158,10 @@ class OwnerOnly extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final currentRole = getCurrentUserRole();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isOwner = ref.watch(isOwnerProvider);
     
-    if (currentRole.startsWith('owner')) {
+    if (isOwner) {
       return child;
     }
     
@@ -188,10 +170,10 @@ class OwnerOnly extends StatelessWidget {
 }
 
 /// Widget que mostra conteúdo apenas para clientes
-class ClientOnly extends StatelessWidget {
+class ClientOnly extends ConsumerWidget {
   final Widget child;
   final Widget? fallback;
-
+  
   const ClientOnly({
     super.key,
     required this.child,
@@ -199,10 +181,11 @@ class ClientOnly extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final currentRole = getCurrentUserRole();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final role = ref.watch(currentUserRoleProvider);
+    final isClient = role?.startsWith('cliente') ?? false;
     
-    if (currentRole.startsWith('cliente')) {
+    if (isClient) {
       return child;
     }
     

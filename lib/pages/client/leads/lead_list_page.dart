@@ -1,14 +1,12 @@
-// Lead Genius Admin - Lista de Leads
-// Tela de listagem de leads com filtros.
-
+// Lead Genius Admin - Lista de Leads (Firebase)
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../models/lead_model.dart';
 import '../../../services/lead_service.dart';
-import '../../../widgets/loading_widget.dart';
+import '../../../models/lead_model.dart';
 import '../../../widgets/input_text.dart';
+import '../../../widgets/loading_widget.dart';
 import '../../../widgets/modal_confirm.dart';
 import '../../../app/constants.dart';
 
@@ -20,12 +18,10 @@ class LeadListPage extends ConsumerStatefulWidget {
 }
 
 class _LeadListPageState extends ConsumerState<LeadListPage> {
-  final LeadService _leadService = LeadService();
-  final _searchController = TextEditingController();
-
   List<LeadModel> _leads = [];
   bool _isLoading = true;
-  String? _selectedStatus;
+  String _searchQuery = '';
+  String? _statusFilter;
 
   @override
   void initState() {
@@ -36,9 +32,10 @@ class _LeadListPageState extends ConsumerState<LeadListPage> {
   Future<void> _loadLeads() async {
     setState(() => _isLoading = true);
     try {
-      final leads = await _leadService.getLeads(
-        status: _selectedStatus,
-        search: _searchController.text.isEmpty ? null : _searchController.text,
+      final leadService = ref.read(leadServiceProvider);
+      final leads = await leadService.getLeads(
+        status: _statusFilter,
+        search: _searchQuery,
       );
       setState(() {
         _leads = leads;
@@ -46,31 +43,25 @@ class _LeadListPageState extends ConsumerState<LeadListPage> {
       });
     } catch (e) {
       setState(() => _isLoading = false);
-      if (mounted) {
-        showErrorSnackbar(context, 'Erro ao carregar leads');
-      }
     }
   }
 
-  Future<void> _deleteLead(LeadModel lead) async {
+  Future<void> _deleteLead(String id, String name) async {
     final confirmed = await showConfirmDialog(
       context,
       title: 'Excluir Lead',
-      message: 'Deseja excluir "${lead.name}"?',
+      message: 'Deseja realmente excluir o lead "$name"?',
       isDanger: true,
     );
 
     if (confirmed == true) {
       try {
-        await _leadService.deleteLead(lead.id);
+        final leadService = ref.read(leadServiceProvider);
+        await leadService.deleteLead(id);
+        showSuccessSnackbar(context, 'Lead excluído com sucesso');
         _loadLeads();
-        if (mounted) {
-          showSuccessSnackbar(context, 'Lead excluído');
-        }
       } catch (e) {
-        if (mounted) {
-          showErrorSnackbar(context, 'Erro ao excluir');
-        }
+        showErrorSnackbar(context, 'Erro ao excluir lead');
       }
     }
   }
@@ -96,73 +87,50 @@ class _LeadListPageState extends ConsumerState<LeadListPage> {
       ),
       body: Column(
         children: [
-          // Barra de busca e filtros
+          // Filtros
           Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(
-                      hintText: 'Buscar leads...',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: _searchController.text.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear),
-                              onPressed: () {
-                                _searchController.clear();
-                                _loadLeads();
-                              },
-                            )
-                          : null,
-                    ),
-                    onSubmitted: (_) => _loadLeads(),
+                  child: InputSearch(
+                    onChanged: (value) {
+                      _searchQuery = value;
+                      _loadLeads();
+                    },
                   ),
                 ),
-                const SizedBox(width: 16),
-                DropdownButton<String?>(
-                  value: _selectedStatus,
-                  hint: const Text('Status'),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('Todos')),
-                    ...LeadStatus.all.map(
-                      (s) => DropdownMenuItem(
-                        value: s,
-                        child: Text(LeadStatus.displayName(s)),
-                      ),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    setState(() => _selectedStatus = value);
+                const SizedBox(width: 12),
+                PopupMenuButton<String?>(
+                  icon: const Icon(Icons.filter_list),
+                  tooltip: 'Filtrar por status',
+                  onSelected: (value) {
+                    setState(() => _statusFilter = value);
                     _loadLeads();
                   },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(value: null, child: Text('Todos')),
+                    ...LeadStatus.all.map((status) => PopupMenuItem(
+                          value: status,
+                          child: Text(LeadStatus.displayName(status)),
+                        )),
+                  ],
                 ),
               ],
             ),
           ),
 
-          // Lista de leads
+          // Lista
           Expanded(
             child: _isLoading
                 ? const LoadingWidget()
                 : _leads.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.people_outline,
-                              size: 64,
-                              color: theme.colorScheme.primary.withOpacity(0.3),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Nenhum lead encontrado',
-                              style: theme.textTheme.titleMedium,
-                            ),
-                          ],
-                        ),
+                    ? EmptyStateWidget(
+                        icon: Icons.people_outline,
+                        title: 'Nenhum lead encontrado',
+                        subtitle: 'Comece adicionando seu primeiro lead',
+                        buttonLabel: 'Adicionar Lead',
+                        onButtonPressed: () => context.push('/client/leads/new'),
                       )
                     : RefreshIndicator(
                         onRefresh: _loadLeads,
@@ -171,152 +139,66 @@ class _LeadListPageState extends ConsumerState<LeadListPage> {
                           itemCount: _leads.length,
                           itemBuilder: (context, index) {
                             final lead = _leads[index];
-                            return _LeadCard(
-                              lead: lead,
-                              onTap: () =>
-                                  context.push('/client/leads/${lead.id}'),
-                              onDelete: () => _deleteLead(lead),
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              child: ListTile(
+                                onTap: () => context.push('/client/leads/${lead.id}'),
+                                leading: CircleAvatar(
+                                  backgroundColor: LeadStatus.color(lead.status).withOpacity(0.1),
+                                  child: Text(
+                                    lead.name.isNotEmpty ? lead.name[0].toUpperCase() : '?',
+                                    style: TextStyle(
+                                      color: LeadStatus.color(lead.status),
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                title: Text(
+                                  lead.name,
+                                  style: const TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                                subtitle: Text(
+                                  '${lead.company ?? 'Sem empresa'}\n${LeadStatus.displayName(lead.status)}',
+                                ),
+                                isThreeLine: true,
+                                trailing: PopupMenuButton(
+                                  itemBuilder: (context) => [
+                                    const PopupMenuItem(
+                                      value: 'edit',
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.edit, size: 20),
+                                          SizedBox(width: 8),
+                                          Text('Editar'),
+                                        ],
+                                      ),
+                                    ),
+                                    const PopupMenuItem(
+                                      value: 'delete',
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.delete, size: 20, color: Colors.red),
+                                          SizedBox(width: 8),
+                                          Text('Excluir', style: TextStyle(color: Colors.red)),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                  onSelected: (value) {
+                                    if (value == 'edit') {
+                                      context.push('/client/leads/${lead.id}/edit');
+                                    } else if (value == 'delete') {
+                                      _deleteLead(lead.id, lead.name);
+                                    }
+                                  },
+                                ),
+                              ),
                             );
                           },
                         ),
                       ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _LeadCard extends StatelessWidget {
-  final LeadModel lead;
-  final VoidCallback onTap;
-  final VoidCallback onDelete;
-
-  const _LeadCard({
-    required this.lead,
-    required this.onTap,
-    required this.onDelete,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: theme.colorScheme.primary.withOpacity(0.1),
-                child: Text(
-                  lead.initials,
-                  style: TextStyle(
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      lead.name,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (lead.company != null)
-                      Text(
-                        lead.company!,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurface.withOpacity(0.6),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              _StatusChip(status: lead.status),
-              PopupMenuButton(
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'edit',
-                    child: Text('Editar'),
-                  ),
-                  const PopupMenuItem(
-                    value: 'delete',
-                    child: Text('Excluir', style: TextStyle(color: Colors.red)),
-                  ),
-                ],
-                onSelected: (value) {
-                  if (value == 'edit') {
-                    context.push('/client/leads/${lead.id}/edit');
-                  } else if (value == 'delete') {
-                    onDelete();
-                  }
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  final String status;
-
-  const _StatusChip({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    Color color;
-    switch (status) {
-      case 'novo':
-        color = Colors.blue;
-        break;
-      case 'contatado':
-        color = Colors.cyan;
-        break;
-      case 'qualificado':
-        color = Colors.teal;
-        break;
-      case 'proposta':
-        color = Colors.orange;
-        break;
-      case 'negociacao':
-        color = Colors.amber;
-        break;
-      case 'ganho':
-        color = Colors.green;
-        break;
-      case 'perdido':
-        color = Colors.red;
-        break;
-      default:
-        color = Colors.grey;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Text(
-        LeadStatus.displayName(status),
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
       ),
     );
   }

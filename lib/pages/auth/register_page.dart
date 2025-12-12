@@ -1,11 +1,9 @@
-// Lead Genius Admin - Página de Registro
-// Tela de cadastro de novo usuário.
-
+// Lead Genius Admin - Página de Registro (Firebase)
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/providers/auth_provider.dart';
+import '../../services/auth_service.dart';
 import '../../widgets/input_text.dart';
 import '../../widgets/button_primary.dart';
 import '../../widgets/modal_confirm.dart';
@@ -37,14 +35,21 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
   Future<void> _handleRegister() async {
     if (!_formKey.currentState!.validate()) return;
 
+    if (_passwordController.text != _confirmPasswordController.text) {
+      showErrorSnackbar(context, 'As senhas não coincidem');
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
       final authService = ref.read(authServiceProvider);
+
       await authService.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text,
         name: _nameController.text.trim(),
+        role: 'cliente_admin',
       );
 
       if (!mounted) return;
@@ -55,9 +60,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
       if (!mounted) return;
       showErrorSnackbar(context, e.toString());
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -67,81 +70,93 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
-        ),
+        title: const Text('Criar Conta'),
       ),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 400),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Criar Conta',
-                    style: theme.textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 400),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Título
+                    Text(
+                      'Crie sua conta',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Preencha os dados para começar',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurface.withOpacity(0.6),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Preencha os dados abaixo para começar',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 32),
+                    const SizedBox(height: 32),
 
-                  InputText(
-                    label: 'Nome completo',
-                    controller: _nameController,
-                    enabled: !_isLoading,
-                    prefixIcon: const Icon(Icons.person_outline),
-                    validator: (v) =>
-                        v?.isEmpty == true ? 'Nome é obrigatório' : null,
-                  ),
-                  const SizedBox(height: 16),
+                    // Campos
+                    InputText(
+                      label: 'Nome completo',
+                      controller: _nameController,
+                      enabled: !_isLoading,
+                      prefixIcon: Icons.person_outline,
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Nome é obrigatório';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
 
-                  InputEmail(
-                    controller: _emailController,
-                    enabled: !_isLoading,
-                  ),
-                  const SizedBox(height: 16),
+                    InputEmail(
+                      controller: _emailController,
+                      enabled: !_isLoading,
+                    ),
+                    const SizedBox(height: 16),
 
-                  InputPassword(
-                    controller: _passwordController,
-                    enabled: !_isLoading,
-                  ),
-                  const SizedBox(height: 16),
+                    InputPassword(
+                      controller: _passwordController,
+                      enabled: !_isLoading,
+                    ),
+                    const SizedBox(height: 16),
 
-                  InputPassword(
-                    controller: _confirmPasswordController,
-                    label: 'Confirmar senha',
-                    enabled: !_isLoading,
-                    validator: (v) {
-                      if (v?.isEmpty == true) return 'Confirme a senha';
-                      if (v != _passwordController.text) {
-                        return 'Senhas não conferem';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 32),
+                    InputPassword(
+                      label: 'Confirmar senha',
+                      controller: _confirmPasswordController,
+                      enabled: !_isLoading,
+                    ),
+                    const SizedBox(height: 32),
 
-                  ButtonPrimary(
-                    label: 'Cadastrar',
-                    onPressed: _isLoading ? null : _handleRegister,
-                    isLoading: _isLoading,
-                    icon: Icons.person_add,
-                  ),
-                ],
+                    // Botão de registro
+                    ButtonPrimary(
+                      label: 'Criar Conta',
+                      onPressed: _isLoading ? null : _handleRegister,
+                      isLoading: _isLoading,
+                      icon: Icons.person_add,
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Link para login
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text('Já tem uma conta?'),
+                        TextButton(
+                          onPressed: _isLoading ? null : () => context.pop(),
+                          child: const Text('Entrar'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

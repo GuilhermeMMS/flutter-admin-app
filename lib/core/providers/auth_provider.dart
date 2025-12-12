@@ -1,87 +1,61 @@
-// Lead Genius Admin - Provider de Autenticação
-// Gerencia o estado de autenticação do usuário.
-
+// Lead Genius Admin - Provider de Autenticação (Firebase)
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../../main.dart';
-import '../../models/user_model.dart';
 import '../../services/auth_service.dart';
+import '../../models/user_model.dart';
 
-/// Provider para o serviço de autenticação
-final authServiceProvider = Provider<AuthService>((ref) {
-  return AuthService();
+/// Stream de estado de autenticação do Firebase
+final authStateProvider = StreamProvider<User?>((ref) {
+  return ref.watch(firebaseAuthProvider).authStateChanges();
 });
 
-/// Provider para o estado de autenticação
-final authStateProvider = StreamProvider<User?>((ref) {
-  return supabase.auth.onAuthStateChange.map((event) => event.session?.user);
+/// Provider do usuário Firebase atual
+final currentFirebaseUserProvider = Provider<User?>((ref) {
+  return ref.watch(authStateProvider).valueOrNull;
+});
+
+/// Provider dos dados do usuário (do Firestore)
+final currentUserProvider = FutureProvider<UserModel?>((ref) async {
+  final firebaseUser = ref.watch(currentFirebaseUserProvider);
+  if (firebaseUser == null) return null;
+
+  final firestore = ref.read(firestoreProvider);
+  final doc = await firestore.collection('users').doc(firebaseUser.uid).get();
+  
+  if (!doc.exists) return null;
+  return UserModel.fromJson({'id': doc.id, ...doc.data()!});
+});
+
+/// Provider da role do usuário atual
+final currentUserRoleProvider = Provider<String?>((ref) {
+  return ref.watch(currentUserProvider).valueOrNull?.role;
+});
+
+/// Provider do tenant_id do usuário atual
+final currentTenantIdProvider = Provider<String?>((ref) {
+  return ref.watch(currentUserProvider).valueOrNull?.tenantId;
 });
 
 /// Provider para verificar se está logado
 final isLoggedInProvider = Provider<bool>((ref) {
-  final authState = ref.watch(authStateProvider);
-  return authState.valueOrNull != null;
+  return ref.watch(currentFirebaseUserProvider) != null;
 });
 
-/// Provider para obter o usuário atual do Supabase
-final currentSupabaseUserProvider = Provider<User?>((ref) {
-  return supabase.auth.currentUser;
-});
-
-/// Provider para obter os dados completos do usuário
-final currentUserProvider = FutureProvider<UserModel?>((ref) async {
-  final user = supabase.auth.currentUser;
-  if (user == null) return null;
-
-  try {
-    final response = await supabase
-        .from('users')
-        .select()
-        .eq('id', user.id)
-        .single();
-
-    return UserModel.fromJson(response);
-  } catch (e) {
-    // Se não encontrar na tabela users, cria um modelo básico a partir dos metadados
-    return UserModel(
-      id: user.id,
-      email: user.email ?? '',
-      name: user.userMetadata?['name'] ?? 'Usuário',
-      role: user.userMetadata?['role'] ?? 'cliente_user',
-      tenantId: user.userMetadata?['tenant_id'],
-      createdAt: DateTime.parse(user.createdAt),
-    );
-  }
-});
-
-/// Provider para obter a role do usuário atual
-final currentUserRoleProvider = Provider<String>((ref) {
-  final user = supabase.auth.currentUser;
-  if (user == null) return '';
-  return user.userMetadata?['role'] ?? 'cliente_user';
-});
-
-/// Provider para obter o tenant_id do usuário atual
-final currentTenantIdProvider = Provider<String?>((ref) {
-  final user = supabase.auth.currentUser;
-  if (user == null) return null;
-  return user.userMetadata?['tenant_id'];
-});
-
-/// Provider para verificar se o usuário é owner
+/// Provider para verificar se é owner
 final isOwnerProvider = Provider<bool>((ref) {
   final role = ref.watch(currentUserRoleProvider);
-  return role.startsWith('owner');
+  return role?.startsWith('owner') ?? false;
 });
 
-/// Provider para verificar se o usuário é cliente admin
+/// Provider para verificar se é cliente admin
 final isClientAdminProvider = Provider<bool>((ref) {
   final role = ref.watch(currentUserRoleProvider);
   return role == 'cliente_admin';
 });
 
-/// Provider para verificar se o usuário pode escrever
+/// Provider para verificar se pode escrever
 final canWriteProvider = Provider<bool>((ref) {
   final role = ref.watch(currentUserRoleProvider);
   return role == 'owner_admin' || role == 'cliente_admin';
