@@ -1,0 +1,95 @@
+name: lead_genius_admin
+description: Aplicativo Flutter com áreas administrativas para clientes e super-admin.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  
+  # Supabase
+  supabase_flutter: ^2.3.0
+  
+  # State Management
+  flutter_riverpod: ^2.4.9
+  riverpod_annotation: ^2.3.3
+  
+  # Routing
+  go_router: ^13.2.0
+  
+  # Storage & Security
+  flutter_secure_storage: ^9.0.0
+  shared_preferences: ^2.2.2
+  
+  # HTTP & Serialization
+  dio: ^5.4.0
+  json_annotation: ^4.8.1
+  
+  # Utils
+  intl: ^0.18.1
+  uuid: ^4.3.3
+  equatable: ^2.0.5
+  
+  # PDF & CSV Export
+  pdf: ^3.10.7
+  printing: ^5.12.0
+  csv: ^6.0.0
+  path_provider: ^2.1.2
+  share_plus: ^7.2.1
+  
+  # Image Picker & Storage
+  image_picker: ^1.0.7
+  cached_network_image: ^3.3.1
+  
+  # UI Helpers
+  flutter_spinkit: ^5.2.0
+  shimmer: ^3.0.0
+  fluttertoast: ^8.2.4
+  
+  # Icons
+  cupertino_icons: ^1.0.6
+  flutter_svg: ^2.0.9
+  
+  # Date Picker
+  syncfusion_flutter_datepicker: ^24.1.41
+  
+  # Environment variables
+  flutter_dotenv: ^5.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+  
+  # Code Generation
+  build_runner: ^2.4.8
+  json_serializable: ^6.7.1
+  riverpod_generator: ^2.3.9
+  
+  # Testing
+  mockito: ^5.4.4
+  mocktail: ^1.0.3
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/images/
+    - assets/icons/
+    - .env
+  
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700
